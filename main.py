@@ -101,7 +101,7 @@ def load_all_credentials() -> dict:
     return creds
 
 
-def main():
+def main(month=None):
 
     atlas_uri = os.getenv("MONGODB_URI")
     client = MongoClient(atlas_uri)
@@ -125,7 +125,8 @@ def main():
 
         print(f"Scraping facturas para {user}…")
         try:
-            scraper = SiiScraper(user, pw, headless=True)
+            scraper = SiiScraper(user, pw, headless=True, month=month) if month is not None else SiiScraper(
+                user, pw, headless=True)
             df = scraper.scrape_all()
             df["sii_user"] = user
 
@@ -171,7 +172,8 @@ def main():
     if os.path.exists(PROGRESS_FILE):
         os.remove(PROGRESS_FILE)
 
-def debug_scraper():
+
+def debug_scraper(month=None):
 
     atlas_uri = os.getenv("MONGODB_URI")
     client = MongoClient(atlas_uri)
@@ -186,8 +188,8 @@ def debug_scraper():
     all_dfs = []
     print("Obteniendo datos de facturas desde SII")
 
-    scraper = SiiScraper(
-        user="", pwd="", use_certificate=True, headless=False, month="12")
+    scraper = SiiScraper(user="", pw="", use_certificate=True, headless=True, month=month) if month is not None else SiiScraper(
+        user="", pw="", use_certificate=True, headless=True)
     df = scraper.scrape_all()
     df["sii_user"] = ""
     all_dfs.append(df)
@@ -239,9 +241,15 @@ if __name__ == "__main__":
         action="store_true",
         help="run the debug_scraper() instead of main()"
     )
+    parser.add_argument(
+        "--month",
+        type=int,
+        help="month to pass to SiiScraper"
+    )
     args = parser.parse_args()
 
     if args.debug:
-        debug_scraper()
+        debug_scraper(
+            args.month) if args.month is not None else debug_scraper()
     else:
-        main()
+        main(args.month) if args.month is not None else main()
