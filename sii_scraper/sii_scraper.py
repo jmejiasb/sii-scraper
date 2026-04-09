@@ -11,8 +11,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, NoSuchElementException
 
 
-class SiiScraper: 
-    def __init__(self, user: str, pwd: str, headless:bool = False, use_certificate = False, month:str = ""):
+class SiiScraper:
+
+    DEFAULT_WAIT = 15
+
+    def __init__(self, user: str, pwd: str, headless: bool = False, use_certificate=False, month: str | None = None, year: str | None = None):
         options = Options()
 
         self.user = user
@@ -23,11 +26,13 @@ class SiiScraper:
         if headless:
             options.add_argument("--headless")
         options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-gpu")               # recommended for Linux
-        options.add_argument("--no-sandbox")                # recommended in many CI systems
-        options.add_argument("--disable-dev-shm-usage")  
+        # recommended for Linux
+        options.add_argument("--disable-gpu")
+        # recommended in many CI systems
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--log-level=3")
-        
+
         prefs = {
             "profile.managed_default_content_settings.images": 2,
             "profile.managed_default_content_settings.fonts": 2,
@@ -45,17 +50,19 @@ class SiiScraper:
         prefs["ssl"] = {
             "auto_select_certificate_for_urls": [auto_select]
         }
-        
+
         options.add_experimental_option("prefs", prefs)
 
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
-        self.wait = WebDriverWait(self.driver, 30)
+        self.wait = WebDriverWait(self.driver, self.DEFAULT_WAIT)
         self.month = month
+        self.year = year
 
     def login_and_navigate(self):
-        self.driver.get("https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
-        
+        self.driver.get(
+            "https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
+
         attempt = 1
         max_retries = 3
         for attempt in range(1, max_retries + 1):
@@ -67,7 +74,8 @@ class SiiScraper:
                 login_link.click()
                 break  # success — exit the function
             except TimeoutException:
-                print(f"→ Attempt {attempt}/{max_retries} to click login_link timed out.")
+                print(
+                    f"→ Attempt {attempt}/{max_retries} to click login_link timed out.")
                 if attempt < max_retries:
                     time.sleep(1)  # give it a moment before retrying
                 else:
@@ -131,7 +139,8 @@ class SiiScraper:
 
     def login_and_navigate_with_cert(self):
 
-        self.driver.get("https://zeusr.sii.cl/AUT2000/InicioAutenticacion/IngresoCertificado.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
+        self.driver.get(
+            "https://zeusr.sii.cl/AUT2000/InicioAutenticacion/IngresoCertificado.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
 
         self.wait.until(EC.alert_is_present())
 
@@ -173,15 +182,16 @@ class SiiScraper:
         print("Ingresando al registro de compras y ventas")
 
     def _scrape_pending(self, wait, link_xpath: str, status: str, doc_type: str, rut_value: str, all_rows: list):
-        
+
         try:
             link_el = wait.until(
                 EC.element_to_be_clickable((By.XPATH, link_xpath))
             )
         except:
-            print(f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
+            print(
+                f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
             return
-        
+
         try:
             count_td = link_el.find_element(
                 By.XPATH,
@@ -190,13 +200,15 @@ class SiiScraper:
             # strip dots and parse
             count = int(count_td.text.replace(".", "").strip() or 0)
         except (NoSuchElementException, ValueError):
-            print(f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
+            print(
+                f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
             return
-        
+
         if count <= 0:
-            print(f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
+            print(
+                f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
             return
-        
+
         for attempt in range(2):
             try:
                 # ensure no leftover backdrops
@@ -204,7 +216,8 @@ class SiiScraper:
                     (By.CSS_SELECTOR, "div.modal-backdrop")
                 ))
                 # scroll into view then click
-                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", link_el)
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});", link_el)
                 link_el.click()
                 break
             except ElementClickInterceptedException:
@@ -212,7 +225,8 @@ class SiiScraper:
                 # try to dismiss any open alert-modal
                 try:
                     modal = self.driver.find_element(By.ID, "alert-modal")
-                    modal.find_element(By.CSS_SELECTOR, ".modal-footer .btn-danger").click()
+                    modal.find_element(
+                        By.CSS_SELECTOR, ".modal-footer .btn-danger").click()
                 except NoSuchElementException:
                     pass
                 # then wait a moment for backdrop to disappear
@@ -222,15 +236,17 @@ class SiiScraper:
         else:
             print(f"→ Failed to click {doc_type} after retry, skipping.")
             return
-        
+
         length_sel = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "select[name='tableCompra_length']"))
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "select[name='tableCompra_length']"))
         )
-        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", length_sel)
-        Select(length_sel).select_by_value("100")    
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", length_sel)
+        Select(length_sel).select_by_value("100")
 
         for tr in self.driver.find_elements(By.CSS_SELECTOR, "#tableCompra tbody tr"):
-            
+
             tds = tr.find_elements(By.TAG_NAME, "td")
 
             supplier_link = ""
@@ -238,8 +254,8 @@ class SiiScraper:
                 supplier_link = tds[1].find_element(By.TAG_NAME, "a")
             except NoSuchElementException:
                 supplier_link = tds[2].find_element(By.TAG_NAME, "a")
-                
-            supplier_id   = supplier_link.text.strip()
+
+            supplier_id = supplier_link.text.strip()
             supplier_name = supplier_link.get_attribute("data-original-title")
 
             row = []
@@ -256,11 +272,11 @@ class SiiScraper:
                     0,
                     0,
                     tds[-1].text.strip(),
-                    rut_value, 
+                    rut_value,
                     status,
                     doc_type
                 ]
-            
+
             else:
 
                 row = [
@@ -274,16 +290,16 @@ class SiiScraper:
                     0,
                     0,
                     tds[-1].text.strip(),
-                    rut_value, 
+                    rut_value,
                     status,
                     doc_type
                 ]
 
             all_rows.append(row)
 
-
         volver_btn = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[ng-click='doTheBack()']"))
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[ng-click='doTheBack()']"))
         )
         volver_btn.click()
 
@@ -298,9 +314,10 @@ class SiiScraper:
                 EC.element_to_be_clickable((By.XPATH, link_xpath))
             )
         except:
-            print(f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
+            print(
+                f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
             return
-        
+
         try:
             count_td = link_el.find_element(
                 By.XPATH,
@@ -309,13 +326,15 @@ class SiiScraper:
             # strip dots and parse
             count = int(count_td.text.replace(".", "").strip() or 0)
         except (NoSuchElementException, ValueError):
-            print(f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
+            print(
+                f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
             return
-        
+
         if count <= 0:
-            print(f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
+            print(
+                f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
             return
-        
+
         for attempt in range(2):
             try:
                 # ensure no leftover backdrops
@@ -323,7 +342,8 @@ class SiiScraper:
                     (By.CSS_SELECTOR, "div.modal-backdrop")
                 ))
                 # scroll into view then click
-                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", link_el)
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});", link_el)
                 link_el.click()
                 break
             except ElementClickInterceptedException:
@@ -331,7 +351,8 @@ class SiiScraper:
                 # try to dismiss any open alert-modal
                 try:
                     modal = self.driver.find_element(By.ID, "alert-modal")
-                    modal.find_element(By.CSS_SELECTOR, ".modal-footer .btn-danger").click()
+                    modal.find_element(
+                        By.CSS_SELECTOR, ".modal-footer .btn-danger").click()
                 except NoSuchElementException:
                     pass
                 # then wait a moment for backdrop to disappear
@@ -343,38 +364,15 @@ class SiiScraper:
             return
 
         length_sel = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "select[name='tableCompra_length']"))
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "select[name='tableCompra_length']"))
         )
 
-        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", length_sel)
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", length_sel)
         Select(length_sel).select_by_value("100")
 
-        wait.until(lambda d: len(
-            d.find_elements(By.CSS_SELECTOR, "#tableCompra tbody tr")
-        ) >= 1)
-
-        for tr in self.driver.find_elements(By.CSS_SELECTOR, "#tableCompra tbody tr"):
-            
-            tds = tr.find_elements(By.TAG_NAME, "td")
-
-            supplier_link = tds[1].find_element(By.TAG_NAME, "a")
-            supplier_id   = supplier_link.text.strip()
-            supplier_name = supplier_link.get_attribute("data-original-title")
-
-            # row_values = [data_cells[0].text.strip()]                # type_purchase
-            row = []
-
-            row = [
-                tds[0].text.strip(),
-                supplier_id,
-                supplier_name,
-                *[td.text.strip() for td in tds[2:]],
-                rut_value, 
-                status,
-                doc_type
-            ]
-
-            all_rows.append(row)
+        self._scrape_table_pages(wait, rut_value, status, doc_type, all_rows)
 
         volver_btn = wait.until(
             EC.element_to_be_clickable(
@@ -383,6 +381,63 @@ class SiiScraper:
         )
 
         volver_btn.click()
+
+    def _scrape_table_pages(self, wait, rut_value, status, doc_type, all_rows):
+        while True:
+            rows = self.driver.find_elements(
+                By.CSS_SELECTOR, "#tableCompra tbody tr")
+
+            for tr in rows:
+                tds = tr.find_elements(By.TAG_NAME, "td")
+                if not tds:
+                    continue
+
+                supplier_link = tds[1].find_element(By.TAG_NAME, "a")
+                supplier_id = supplier_link.text.strip()
+                supplier_name = supplier_link.get_attribute(
+                    "data-original-title")
+
+                row = [
+                    tds[0].text.strip(),
+                    supplier_id,
+                    supplier_name,
+                    *[td.text.strip() for td in tds[2:]],
+                    rut_value,
+                    status,
+                    doc_type,
+                ]
+
+                all_rows.append(row)
+
+            try:
+                next_li = self.driver.find_element(
+                    By.CSS_SELECTOR,
+                    "#tableCompra_paginate li.paginate_button.next"
+                )
+
+                classes = next_li.get_attribute("class") or ""
+                if "disabled" in classes:
+                    break
+
+                current_first_row = self.driver.find_element(
+                    By.CSS_SELECTOR,
+                    "#tableCompra tbody tr"
+                ).text
+
+                next_a = next_li.find_element(By.TAG_NAME, "a")
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});", next_a
+                )
+                self.driver.execute_script("arguments[0].click();", next_a)
+
+                wait.until(
+                    lambda d: d.find_element(
+                        By.CSS_SELECTOR, "#tableCompra tbody tr"
+                    ).text != current_first_row
+                )
+
+            except Exception:
+                break
 
     def _click_pendientes(self, wait):
         """
@@ -399,8 +454,9 @@ class SiiScraper:
         )
 
         elem = wait.until(EC.presence_of_element_located(pendientes_locator))
-        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elem)
-        
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", elem)
+
         wait.until(EC.element_to_be_clickable(pendientes_locator))
         try:
             elem.click()
@@ -414,59 +470,68 @@ class SiiScraper:
 
     def scrape_all(self) -> pd.DataFrame:
         try:
-            if self.use_certificate: 
+            if self.use_certificate:
                 self.login_and_navigate_with_cert()
-            else: 
+            else:
                 self.login_and_navigate()
 
-            try: 
+            try:
                 self.wait.until(lambda d: len(
-                    d.find_elements(By.CSS_SELECTOR, "select[name='rut'] option")
+                    d.find_elements(By.CSS_SELECTOR,
+                                    "select[name='rut'] option")
                 ) > 2)
 
             except TimeoutException:
                 self.wait.until(lambda d: len(
-                    d.find_elements(By.CSS_SELECTOR, "select[name='rut'] option")
+                    d.find_elements(By.CSS_SELECTOR,
+                                    "select[name='rut'] option")
                 ) > 2)
 
             # Convertir esto a un for loop
-            rut_select = self.wait.until(EC.element_to_be_clickable((By.NAME, "rut")))
+            rut_select = self.wait.until(
+                EC.element_to_be_clickable((By.NAME, "rut")))
             select = Select(rut_select)
             option_count = len(select.options)
 
             # ruts = [opt.text.strip() for opt in all_opts if opt.text.strip() and opt.text.strip() != "" and opt.text.strip() == "Empresa"]
             # print("Will iterate RUTs:", ruts)
-            
+
             all_rows = []
             headers = [
-                "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not", 
-                "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",  
+                "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
+                "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",
                 "tabaco_puro", "tabaco_cigarrillos", "tabaco_elaborado", "nce_or_nde", "rut_holding", "status", "doc_type"
             ]
 
             wait = WebDriverWait(self.driver, 10)
 
             if (self.month):
-                periodoMes = self.wait.until(EC.element_to_be_clickable((By.ID, "periodoMes")))
+                periodoMes = self.wait.until(
+                    EC.element_to_be_clickable((By.ID, "periodoMes")))
                 month_sel = Select(periodoMes)
                 month_sel.select_by_value(self.month)
 
-                # periodoAnyo = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'select[ng-model="periodoAnho"]')))
-                # year_sel = Select(periodoAnyo)
-                # year_sel.select_by_value("2025")
+            if (self.year): 
+
+                periodoAnyo = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'select[ng-model="periodoAnho"]')))
+                year_sel = Select(periodoAnyo)
+                year_sel.select_by_value(self.year)
 
             for idx in range(1, option_count):
-                try: 
+                try:
                     sel = Select(rut_select)
-                    sel.select_by_index(idx)  # index 0 = placeholder, 1 = first RUT, 2 = second RUT
+                    # index 0 = placeholder, 1 = first RUT, 2 = second RUT
+                    sel.select_by_index(idx)
                     # time.sleep(5)
 
-                    rut_value = sel.first_selected_option.get_attribute("value")
+                    rut_value = sel.first_selected_option.get_attribute(
+                        "value")
                     # (or use .text if you prefer the visible text)
                     print(f"Obteniendo facturas para RUT {rut_value!r}")
 
                     wait.until(
-                        EC.invisibility_of_element_located((By.ID, "esperaDialog"))
+                        EC.invisibility_of_element_located(
+                            (By.ID, "esperaDialog"))
                     )
 
                     # 2) Click “Consultar”
@@ -478,7 +543,8 @@ class SiiScraper:
                     try:
                         consult_btn.click()
                     except ElementClickInterceptedException:
-                        self.driver.execute_script("arguments[0].click();", consult_btn)
+                        self.driver.execute_script(
+                            "arguments[0].click();", consult_btn)
 
                     self._scrape_section(
                         wait,
@@ -497,7 +563,7 @@ class SiiScraper:
                         rut_value=rut_value,
                         all_rows=all_rows
                     )
-                    
+
                     self._scrape_section(
                         wait,
                         "//a[contains(text(),'Nota de Crédito Electrónica') and @ui-sref]",
@@ -514,7 +580,8 @@ class SiiScraper:
                             (By.XPATH, "//td[@ng-if=\"(row.rsmnLink)\"]")
                         ))
                     except TimeoutException:
-                        print(f"→ No pending‐documents table for RUT {rut_value}, skipping.")
+                        print(
+                            f"→ No pending‐documents table for RUT {rut_value}, skipping.")
                         continue
 
                     self._scrape_pending(
@@ -552,35 +619,44 @@ class SiiScraper:
                 # print(df.head())
                 return df
         finally:
+
+            logout_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[@href='https://zeusr.sii.cl/cgi_AUT2000/autTermino.cgi']"))
+            )
+            logout_link.click()
             self.driver.quit()
 
-    def scrape_one(self, rut) -> pd.DataFrame: 
+    def scrape_one(self, rut) -> pd.DataFrame:
 
         try:
             self.login_and_navigate()
 
-            try: 
+            try:
                 self.wait.until(lambda d: len(
-                    d.find_elements(By.CSS_SELECTOR, "select[name='rut'] option")
+                    d.find_elements(By.CSS_SELECTOR,
+                                    "select[name='rut'] option")
                 ) > 2)
 
             except TimeoutException:
                 self.wait.until(lambda d: len(
-                    d.find_elements(By.CSS_SELECTOR, "select[name='rut'] option")
+                    d.find_elements(By.CSS_SELECTOR,
+                                    "select[name='rut'] option")
                 ) > 2)
 
             # Convertir esto a un for loop
-            rut_select = self.wait.until(EC.element_to_be_clickable((By.NAME, "rut")))
+            rut_select = self.wait.until(
+                EC.element_to_be_clickable((By.NAME, "rut")))
             select = Select(rut_select)
             option_count = len(select.options)
 
             # ruts = [opt.text.strip() for opt in all_opts if opt.text.strip() and opt.text.strip() != "" and opt.text.strip() == "Empresa"]
             # print("Will iterate RUTs:", ruts)
-            
+
             all_rows = []
             headers = [
-                "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not", 
-                "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",  
+                "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
+                "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",
                 "tabaco_puro", "tabaco_cigarrillos", "tabaco_elaborado", "nce_or_nde", "rut_holding", "status", "doc_type"
             ]
 
@@ -591,7 +667,8 @@ class SiiScraper:
             # month_sel.select_by_value("05")
 
             sel = Select(rut_select)
-            sel.select_by_value(rut)  # index 0 = placeholder, 1 = first RUT, 2 = second RUT
+            # index 0 = placeholder, 1 = first RUT, 2 = second RUT
+            sel.select_by_value(rut)
             # time.sleep(5)
 
             rut_value = sel.first_selected_option.get_attribute("value")
@@ -611,7 +688,8 @@ class SiiScraper:
             try:
                 consult_btn.click()
             except ElementClickInterceptedException:
-                self.driver.execute_script("arguments[0].click();", consult_btn)
+                self.driver.execute_script(
+                    "arguments[0].click();", consult_btn)
 
             self._scrape_section(
                 wait,
@@ -630,7 +708,7 @@ class SiiScraper:
                 rut_value=rut_value,
                 all_rows=all_rows
             )
-            
+
             self._scrape_section(
                 wait,
                 "//a[contains(text(),'Nota de Crédito Electrónica') and @ui-sref]",
@@ -647,12 +725,13 @@ class SiiScraper:
                     (By.XPATH, "//td[@ng-if=\"(row.rsmnLink)\"]")
                 ))
             except TimeoutException:
-                print(f"→ No pending‐documents table for RUT {rut_value}, skipping.")
+                print(
+                    f"→ No pending‐documents table for RUT {rut_value}, skipping.")
                 return
 
             self._scrape_pending(
                 wait,
-                    "//a[@ui-sref and contains(normalize-space(.), 'Factura Electrónica')]",
+                "//a[@ui-sref and contains(normalize-space(.), 'Factura Electrónica')]",
                 status="pending",
                 doc_type="invoice",
                 rut_value=rut_value,

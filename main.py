@@ -101,7 +101,7 @@ def load_all_credentials() -> dict:
     return creds
 
 
-def main(month=None):
+def main(month=None, year=None):
 
     atlas_uri = os.getenv("MONGODB_URI")
     client = MongoClient(atlas_uri)
@@ -125,8 +125,14 @@ def main(month=None):
 
         print(f"Scraping facturas para {user}…")
         try:
-            scraper = SiiScraper(user, pw, headless=True, month=month) if month is not None else SiiScraper(
-                user, pw, headless=True)
+            scraper_kwargs = {"headless": True}
+
+            if month is not None:
+                scraper_kwargs["month"] = month
+            if year is not None:
+                scraper_kwargs["year"] = year
+
+            scraper = SiiScraper(user, pw, **scraper_kwargs)
             df = scraper.scrape_all()
             df["sii_user"] = user
 
@@ -173,7 +179,7 @@ def main(month=None):
         os.remove(PROGRESS_FILE)
 
 
-def debug_scraper(month=None):
+def debug_scraper(month=None, year=None):
 
     atlas_uri = os.getenv("MONGODB_URI")
     client = MongoClient(atlas_uri)
@@ -188,8 +194,23 @@ def debug_scraper(month=None):
     all_dfs = []
     print("Obteniendo datos de facturas desde SII")
 
-    scraper = SiiScraper(user="", pw="", use_certificate=True, headless=True, month=month) if month is not None else SiiScraper(
-        user="", pw="", use_certificate=True, headless=True)
+    scraper_kwargs = {
+        "use_certificate": True,
+        "headless": False,
+    }
+
+    if month is not None:
+        scraper_kwargs["month"] = month
+    if year is not None:
+        scraper_kwargs["year"] = year
+
+    scraper = SiiScraper(
+        user="",
+        pwd="",
+        **scraper_kwargs
+    )
+
+    df = scraper.scrape_all()
     df = scraper.scrape_all()
     df["sii_user"] = ""
     all_dfs.append(df)
@@ -243,13 +264,24 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--month",
-        type=int,
+        type=str,
         help="month to pass to SiiScraper"
+    )
+
+    parser.add_argument(
+        "--year",
+        type=str,
+        help="year to pass to SiiScraper"
     )
     args = parser.parse_args()
 
+    kwargs = {}
+    if args.month is not None:
+        kwargs["month"] = args.month
+    if args.year is not None:
+        kwargs["year"] = args.year
+
     if args.debug:
-        debug_scraper(
-            args.month) if args.month is not None else debug_scraper()
+        debug_scraper(**kwargs)
     else:
-        main(args.month) if args.month is not None else main()
+        main(**kwargs)
