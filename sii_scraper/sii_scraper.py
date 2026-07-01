@@ -299,9 +299,19 @@ class SiiScraper:
 
         volver_btn = wait.until(
             EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[ng-click='doTheBack()']"))
+                (By.CSS_SELECTOR, "button[ng-click='doTheBack()']")
+            )
         )
-        volver_btn.click()
+
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});",
+            volver_btn,
+        )
+
+        try:
+            volver_btn.click()
+        except ElementClickInterceptedException:
+            self.driver.execute_script("arguments[0].click();", volver_btn)
 
     def _scrape_section(self, wait, link_xpath: str, status: str, doc_type: str, rut_value: str, all_rows: list):
         """
@@ -380,7 +390,15 @@ class SiiScraper:
             )
         )
 
-        volver_btn.click()
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});",
+            volver_btn,
+        )
+
+        try:
+            volver_btn.click()
+        except ElementClickInterceptedException:
+            self.driver.execute_script("arguments[0].click();", volver_btn)
 
     def _scrape_table_pages(self, wait, rut_value, status, doc_type, all_rows):
         while True:
@@ -468,7 +486,31 @@ class SiiScraper:
             EC.invisibility_of_element_located((By.ID, "esperaDialog"))
         )
 
+    def _dismiss_rut_popup_if_present(self):
+        try:
+            popup_btn = WebDriverWait(self.driver, 2).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, "#alert-modal .modal-footer button")
+                )
+            )
+            self.driver.execute_script("arguments[0].click();", popup_btn)
+
+            WebDriverWait(self.driver, 5).until(
+                EC.invisibility_of_element_located((By.ID, "alert-modal"))
+            )
+
+        except TimeoutException:
+            pass
+
     def scrape_all(self) -> pd.DataFrame:
+
+        all_rows = []
+        headers = [
+            "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
+            "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",
+            "tabaco_puro", "tabaco_cigarrillos", "tabaco_elaborado", "nce_or_nde", "rut_holding", "status", "doc_type"
+        ]
+
         try:
             if self.use_certificate:
                 self.login_and_navigate_with_cert()
@@ -496,13 +538,6 @@ class SiiScraper:
             # ruts = [opt.text.strip() for opt in all_opts if opt.text.strip() and opt.text.strip() != "" and opt.text.strip() == "Empresa"]
             # print("Will iterate RUTs:", ruts)
 
-            all_rows = []
-            headers = [
-                "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
-                "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",
-                "tabaco_puro", "tabaco_cigarrillos", "tabaco_elaborado", "nce_or_nde", "rut_holding", "status", "doc_type"
-            ]
-
             wait = WebDriverWait(self.driver, 10)
 
             if (self.month):
@@ -511,14 +546,21 @@ class SiiScraper:
                 month_sel = Select(periodoMes)
                 month_sel.select_by_value(self.month)
 
-            if (self.year): 
+            if (self.year):
 
-                periodoAnyo = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'select[ng-model="periodoAnho"]')))
+                periodoAnyo = self.wait.until(EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, 'select[ng-model="periodoAnho"]')))
                 year_sel = Select(periodoAnyo)
                 year_sel.select_by_value(self.year)
 
             for idx in range(1, option_count):
                 try:
+
+                    rut_select = self.wait.until(
+                        EC.element_to_be_clickable((By.NAME, "rut")))
+
+                    select = Select(rut_select)
+
                     sel = Select(rut_select)
                     # index 0 = placeholder, 1 = first RUT, 2 = second RUT
                     sel.select_by_index(idx)
@@ -528,6 +570,8 @@ class SiiScraper:
                         "value")
                     # (or use .text if you prefer the visible text)
                     print(f"Obteniendo facturas para RUT {rut_value!r}")
+
+                    self._dismiss_rut_popup_if_present()
 
                     wait.until(
                         EC.invisibility_of_element_located(
@@ -610,22 +654,44 @@ class SiiScraper:
                         rut_value=rut_value,
                         all_rows=all_rows,
                     )
-                except TimeoutException:
-                    print(f"Timeout processing RUT index {idx}, continuing")
+
+                except TimeoutException as e:
+                    print(
+                        f"Timeout processing RUT index {idx}, continuing: {e}")
                     continue
 
-            if all_rows:
-                df = pd.DataFrame(all_rows, columns=headers, dtype=str)
-                # print(df.head())
-                return df
-        finally:
+                except Exception as e:
+                    print(
+                        f"Error processing RUT index {idx}, continuing: {type(e).__name__}: {e}")
+                    continue
 
-            logout_link = self.wait.until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, "//a[@href='https://zeusr.sii.cl/cgi_AUT2000/autTermino.cgi']"))
+        except Exception as e:
+            print(
+                f"Fatal scraper error, returning partial data: "
+                f"{type(e).__name__}: {e}"
             )
-            logout_link.click()
-            self.driver.quit()
+
+        finally:
+            try:
+                logout_link = WebDriverWait(self.driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.XPATH,
+                            "//a[@href='https://zeusr.sii.cl/cgi_AUT2000/autTermino.cgi']",
+                        )
+                    )
+                )
+                logout_link.click()
+            except Exception as e:
+                print(f"Could not logout cleanly: {type(e).__name__}: {e}")
+
+            try:
+                self.driver.quit()
+            except Exception as e:
+                print(
+                    f"Could not quit driver cleanly: {type(e).__name__}: {e}")
+
+        return pd.DataFrame(all_rows, columns=headers, dtype=str)
 
     def scrape_one(self, rut) -> pd.DataFrame:
 
