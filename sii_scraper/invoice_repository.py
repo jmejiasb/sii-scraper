@@ -1,6 +1,8 @@
 import logging
 
 import pandas as pd
+from tqdm import tqdm
+
 from pymongo.database import Database
 
 
@@ -42,7 +44,12 @@ class InvoiceRepository:
         inserted = 0
         updated = 0
 
-        for _, row in df.iterrows():
+        for _, row in tqdm(
+            df.iterrows(),
+            total=len(df),
+            desc="Sincronizando facturas",
+            unit="inv",
+        ):
             data = row.to_dict()
 
             filt = {
