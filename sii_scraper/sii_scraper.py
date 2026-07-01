@@ -13,6 +13,16 @@ from selenium.common.exceptions import TimeoutException, ElementClickIntercepted
 
 
 class SiiScraper:
+    """
+    Clase encargada de obtener facturas de compra desde el portal del SII.
+
+    Automatiza el inicio de sesión, la navegación hacia el Registro de Compras y
+    Ventas, la selección de RUTs asociados, la consulta de documentos aceptados y
+    pendientes, y la construcción de un DataFrame crudo con la información obtenida.
+
+    Esta clase solo realiza scraping web y no limpia datos ni interactúa con la base
+    de datos.
+    """
 
     DEFAULT_WAIT = 15
     HEADERS = [
@@ -58,6 +68,18 @@ class SiiScraper:
     ]
 
     def __init__(self, user: str, pwd: str, headless: bool = False, use_certificate=False, month: str | None = None, year: str | None = None, max_retries: int = 3):
+        """
+        Inicializa el scraper SII y configura el navegador Selenium.
+
+        Args:
+            user: Usuario o RUT utilizado para iniciar sesión en SII.
+            pwd: Contraseña asociada al usuario SII.
+            headless: Indica si Chrome debe ejecutarse sin interfaz gráfica.
+            use_certificate: Indica si se debe usar el flujo de ingreso con certificado.
+            month: Mes opcional a consultar en el Registro de Compras y Ventas.
+            year: Año opcional a consultar en el Registro de Compras y Ventas.
+            max_retries: Cantidad máxima de reintentos para operaciones puntuales.
+        """
 
         options = Options()
 
@@ -96,6 +118,16 @@ class SiiScraper:
         self.year = year
 
     def _login_and_navigate(self) -> None:
+        """
+        Inicia sesión en SII usando Clave Unica.
+
+        Abre la página de autenticación, selecciona el ingreso con clave tributaria,
+        ingresa las credenciales y envía el formulario de inicio de sesión.
+
+        Returns:
+            None
+        """
+
         self.driver.get(
             "https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
 
@@ -133,6 +165,15 @@ class SiiScraper:
         submit_btn.click()
 
     def _login_and_navigate_with_cert(self) -> None:
+        """
+        Inicia sesión en SII usando certificado digital.
+
+        Abre la página de autenticación con certificado, acepta la alerta del navegador
+        si aparece y continúa el flujo de ingreso.
+
+        Returns:
+            None
+        """
 
         self.driver.get(
             "https://zeusr.sii.cl/AUT2000/InicioAutenticacion/IngresoCertificado.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
@@ -145,6 +186,15 @@ class SiiScraper:
             self.log.info("No apareció alerta de certificado, continuando.")
 
     def _navigate_to_purchase_registry(self) -> None:
+        """
+        Navega desde el menú principal del SII hasta el Registro de Compras y Ventas.
+
+        Ingresa al menú de servicios online, selecciona Factura Electrónica y abre la
+        opción correspondiente al Registro de Compras y Ventas.
+
+        Returns:
+            None
+        """
 
         services_menu = self.wait.until(
             EC.presence_of_element_located((By.LINK_TEXT, "Servicios online"))
@@ -180,6 +230,23 @@ class SiiScraper:
         self.log.info("Ingresando al registro de compras y ventas")
 
     def _scrape_pending(self, wait, link_xpath: str, status: str, doc_type: str, rut_value: str, all_rows: list) -> None:
+        """
+        Procesa una sección de documentos pendientes.
+
+        Abre la sección indicada, extrae las filas de la tabla de documentos pendientes y
+        vuelve a la vista anterior al finalizar.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+            link_xpath: XPath del enlace de la sección a procesar.
+            status: Estado que se asignará a los documentos obtenidos.
+            doc_type: Tipo de documento que se asignará a los documentos obtenidos.
+            rut_value: RUT de la empresa actualmente seleccionada.
+            all_rows: Lista donde se acumulan las filas obtenidas.
+
+        Returns:
+            None
+        """
 
         if not self._open_document_section(wait, link_xpath, status, doc_type, rut_value):
             return
@@ -190,8 +257,21 @@ class SiiScraper:
 
     def _scrape_section(self, wait, link_xpath: str, status: str, doc_type: str, rut_value: str, all_rows: list) -> None:
         """
-        Clicks the link identified by link_xpath, scrapes all rows into all_rows
-        tagging them with (rut_value, status, doc_type), then clicks “Volver” to go back.
+        Procesa una sección de documentos aceptados.
+
+        Abre la sección indicada, extrae todas las páginas de la tabla de documentos y
+        vuelve a la vista anterior al finalizar.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+            link_xpath: XPath del enlace de la sección a procesar.
+            status: Estado que se asignará a los documentos obtenidos.
+            doc_type: Tipo de documento que se asignará a los documentos obtenidos.
+            rut_value: RUT de la empresa actualmente seleccionada.
+            all_rows: Lista donde se acumulan las filas obtenidas.
+
+        Returns:
+            None
         """
 
         if not self._open_document_section(wait, link_xpath, status, doc_type, rut_value):
@@ -209,6 +289,24 @@ class SiiScraper:
         doc_type: str,
         rut_value: str,
     ) -> bool:
+        """
+        Abre una sección de documentos si contiene registros disponibles.
+
+        Busca el enlace de la sección, lee la cantidad de documentos asociada, omite la
+        sección si no tiene registros y realiza el clic con reintentos cuando es
+        necesario. Al abrir la tabla, configura la cantidad de filas visibles en 100.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+            link_xpath: XPath del enlace de la sección.
+            status: Estado del documento utilizado para logs.
+            doc_type: Tipo de documento utilizado para logs.
+            rut_value: RUT de la empresa actualmente seleccionada.
+
+        Returns:
+            bool: True si la sección fue abierta correctamente, False si debe omitirse.
+        """
+
         try:
             link_el = wait.until(
                 EC.element_to_be_clickable((By.XPATH, link_xpath))
@@ -255,8 +353,7 @@ class SiiScraper:
 
             except ElementClickInterceptedException:
                 self.log.warning(
-                    f"Click interceptado en {doc_type}. "
-                    f"Intento {attempt}/{self.max_retries}"
+                    f"Click interceptado en {doc_type}. Intento {attempt}/{self.max_retries}"
                 )
 
                 try:
@@ -295,6 +392,18 @@ class SiiScraper:
         return True
 
     def _go_back(self, wait) -> None:
+        """
+        Vuelve desde una tabla de documentos a la vista anterior.
+
+        Busca el botón Volver, lo lleva al centro de la pantalla y realiza el clic,
+        usando JavaScript como respaldo si el clic normal es interceptado.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+
+        Returns:
+            None
+        """
 
         volver_btn = wait.until(
             EC.element_to_be_clickable(
@@ -313,6 +422,22 @@ class SiiScraper:
             self.driver.execute_script("arguments[0].click();", volver_btn)
 
     def _scrape_table_pages(self, wait, rut_value, status, doc_type, all_rows) -> None:
+        """
+        Extrae documentos desde una tabla paginada.
+
+        Lee las filas visibles de la tabla de compras, agrega los documentos obtenidos a
+        la lista acumuladora y avanza por las páginas disponibles hasta llegar al final.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+            rut_value: RUT de la empresa actualmente seleccionada.
+            status: Estado que se asignará a los documentos obtenidos.
+            doc_type: Tipo de documento que se asignará a los documentos obtenidos.
+            all_rows: Lista donde se acumulan las filas obtenidas.
+
+        Returns:
+            None
+        """
 
         while True:
             rows = self.driver.find_elements(
@@ -385,6 +510,22 @@ class SiiScraper:
         doc_type: str,
         all_rows: list,
     ) -> None:
+        """
+        Extrae documentos desde la tabla de documentos pendientes.
+
+        Lee las filas visibles de la tabla de compras pendientes, obtiene los datos del
+        proveedor y construye las filas con la estructura esperada según el tipo de
+        documento.
+
+        Args:
+            rut_value: RUT de la empresa actualmente seleccionada.
+            status: Estado que se asignará a los documentos obtenidos.
+            doc_type: Tipo de documento que se asignará a los documentos obtenidos.
+            all_rows: Lista donde se acumulan las filas obtenidas.
+
+        Returns:
+            None
+        """
 
         for tr in self.driver.find_elements(By.CSS_SELECTOR, "#tableCompra tbody tr"):
 
@@ -448,7 +589,16 @@ class SiiScraper:
 
     def _click_pendientes(self, wait) -> None:
         """
-        Wait for the “Pendientes” tab to be clickable, then click it.
+        Abre la pestaña de documentos pendientes.
+
+        Espera a que desaparezca el indicador de carga, ubica la pestaña Pendientes y la
+        abre, usando JavaScript como respaldo si el clic normal es interceptado.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+
+        Returns:
+            None
         """
 
         wait.until(
@@ -477,6 +627,16 @@ class SiiScraper:
         )
 
     def _dismiss_rut_popup_if_present(self) -> None:
+        """
+        Cierra el popup asociado al cambio de RUT si aparece.
+
+        Busca brevemente el modal de alerta del SII y lo cierra si está presente. Si el
+        popup no aparece, continúa sin realizar ninguna acción.
+
+        Returns:
+            None
+        """
+
         try:
             popup_btn = WebDriverWait(self.driver, 2).until(
                 EC.element_to_be_clickable(
@@ -493,6 +653,18 @@ class SiiScraper:
             pass
 
     def _wait_for_rut_options(self) -> None:
+        """
+        Espera a que se carguen las opciones de RUT disponibles.
+
+        Reintenta la espera hasta que el selector de RUT tenga opciones suficientes para
+        procesar empresas asociadas al usuario autenticado.
+
+        Returns:
+            None
+
+        Raises:
+            TimeoutException: Si las opciones de RUT no se cargan después de los reintentos.
+        """
 
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -511,6 +683,16 @@ class SiiScraper:
         raise TimeoutException("No se cargaron las opciones de RUT")
 
     def _select_period_if_needed(self) -> None:
+        """
+        Selecciona el mes y/o año de consulta si fueron definidos.
+
+        Si el scraper fue inicializado con month o year, selecciona esos valores en los
+        controles del Registro de Compras y Ventas.
+
+        Returns:
+            None
+        """
+
         if (self.month):
             periodoMes = self.wait.until(
                 EC.element_to_be_clickable((By.ID, "periodoMes")))
@@ -525,6 +707,16 @@ class SiiScraper:
             year_sel.select_by_value(self.year)
 
     def _click_consultar(self) -> None:
+        """
+        Ejecuta la consulta para el RUT seleccionado.
+
+        Busca el botón Consultar del formulario y realiza el clic, usando JavaScript como
+        respaldo si el clic normal es interceptado.
+
+        Returns:
+            None
+        """
+
         consult_btn = self.driver.find_element(
             By.CSS_SELECTOR,
             "form[name='formContribuyente'] button[type='submit']"
@@ -537,6 +729,22 @@ class SiiScraper:
                 "arguments[0].click();", consult_btn)
 
     def _scrape_selected_rut(self, wait, rut_value: str, all_rows: list) -> None:
+        """
+        Procesa todos los documentos disponibles para el RUT seleccionado.
+
+        Cierra popups si aparecen, ejecuta la consulta, procesa las secciones de
+        documentos aceptados, abre la pestaña de pendientes y procesa las secciones de
+        documentos pendientes disponibles.
+
+        Args:
+            wait: Instancia de WebDriverWait utilizada para esperas explícitas.
+            rut_value: RUT de la empresa actualmente seleccionada.
+            all_rows: Lista donde se acumulan las filas obtenidas.
+
+        Returns:
+            None
+        """
+
         self.log.info(f"Obteniendo facturas para RUT {rut_value!r}")
 
         self._dismiss_rut_popup_if_present()
@@ -582,12 +790,31 @@ class SiiScraper:
             )
 
     def _login(self) -> None:
+        """
+        Ejecuta el flujo de inicio de sesión correspondiente.
+
+        Usa el ingreso con certificado si use_certificate está activo; de lo contrario,
+        usa el ingreso con usuario y contraseña.
+
+        Returns:
+            None
+        """
         if self.use_certificate:
             self._login_and_navigate_with_cert()
         else:
             self._login_and_navigate()
 
     def _close(self) -> None:
+        """
+        Cierra la sesión del SII y libera el navegador.
+
+        Intenta cerrar sesión desde el portal y luego cerrar el WebDriver, registrando
+        advertencias si alguna de las acciones falla.
+
+        Returns:
+            None
+        """
+
         try:
             logout_link = WebDriverWait(self.driver, 3).until(
                 EC.element_to_be_clickable(
@@ -599,14 +826,26 @@ class SiiScraper:
             )
             logout_link.click()
         except Exception as e:
-            self.log.warning(f"No se pudo cerrar sesión correctamente: {type(e).__name__}: {e}")
+            self.log.warning(
+                f"No se pudo cerrar sesión correctamente: {type(e).__name__}: {e}")
 
         try:
             self.driver.quit()
         except Exception as e:
-            self.log.warning(f"No se pudo cerrar el navegador correctamente: {type(e).__name__}: {e}")
+            self.log.warning(
+                f"No se pudo cerrar el navegador correctamente: {type(e).__name__}: {e}")
 
     def scrape_all(self) -> pd.DataFrame:
+        """
+        Obtiene documentos para todos los RUTs disponibles del usuario autenticado.
+
+        Inicia sesión, navega al Registro de Compras y Ventas, espera las opciones de
+        RUT, selecciona el periodo si corresponde y procesa cada RUT disponible. Si
+        ocurre un error general, retorna los datos parciales obtenidos hasta ese momento.
+
+        Returns:
+            pd.DataFrame: DataFrame crudo con los documentos obtenidos desde SII.
+        """
 
         all_rows = []
 
@@ -649,7 +888,7 @@ class SiiScraper:
                     self.log.warning(
                         f"Error processing RUT index {idx}, continuing: {type(e).__name__}: {e}")
                     continue
-            
+
             return pd.DataFrame(all_rows, columns=self.HEADERS, dtype=str)
 
         except Exception as e:
@@ -660,10 +899,23 @@ class SiiScraper:
 
         finally:
             self._close()
-        
+
         return pd.DataFrame(all_rows, columns=self.HEADERS, dtype=str)
 
     def scrape_one(self, rut) -> pd.DataFrame:
+        """
+        Obtiene documentos para un RUT específico.
+
+        Inicia sesión, navega al Registro de Compras y Ventas, selecciona el periodo si
+        corresponde, selecciona el RUT indicado y procesa sus documentos aceptados y
+        pendientes.
+
+        Args:
+            rut: RUT específico que se desea consultar.
+
+        Returns:
+            pd.DataFrame: DataFrame crudo con los documentos obtenidos para el RUT indicado.
+        """
 
         try:
             self._login()
