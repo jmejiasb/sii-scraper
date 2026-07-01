@@ -1,5 +1,6 @@
 import pandas as pd
 import time
+import logging
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -15,11 +16,14 @@ class SiiScraper:
 
     DEFAULT_WAIT = 15
 
-    def __init__(self, user: str, pwd: str, headless: bool = False, use_certificate=False, month: str | None = None, year: str | None = None):
+    def __init__(self, user: str, pwd: str, headless: bool = False, use_certificate=False, month: str | None = None, year: str | None = None, max_retries: int = 3):
+
         options = Options()
 
         self.user = user
         self.pwd = pwd
+        self.log = logging.getLogger(self.__class__.__name__)
+        self.max_retries = max_retries
 
         self.use_certificate = use_certificate
 
@@ -42,15 +46,6 @@ class SiiScraper:
             "profile.password_manager_enabled": False,
         }
 
-        auto_select = {
-            "pattern": "https://zeusr.sii.cl/*",
-            "filter": {"ISSUER": {"CN": "E-CERTCHILE CA FES 02"}}
-        }
-
-        prefs["ssl"] = {
-            "auto_select_certificate_for_urls": [auto_select]
-        }
-
         options.add_experimental_option("prefs", prefs)
 
         service = Service(ChromeDriverManager().install())
@@ -64,8 +59,8 @@ class SiiScraper:
             "https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi")
 
         attempt = 1
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
+
+        for attempt in range(1, self.max_retries + 1):
             try:
                 login_link = WebDriverWait(self.driver, self.wait._timeout).until(
                     EC.element_to_be_clickable((By.ID, "myHref"))
@@ -74,18 +69,12 @@ class SiiScraper:
                 login_link.click()
                 break  # success — exit the function
             except TimeoutException:
-                print(
-                    f"→ Attempt {attempt}/{max_retries} to click login_link timed out.")
-                if attempt < max_retries:
+                self.log.warning(
+                    f"Intento {attempt}/{self.max_retries} para hacer click en login_link agotó el tiempo.")
+                if attempt < self.max_retries:
                     time.sleep(1)  # give it a moment before retrying
                 else:
                     raise
-
-        # self.wait.until(EC.alert_is_present())
-
-        # alert = self.driver.switch_to.alert
-        # # print("Confirm text:", alert.text)
-        # alert.accept()
 
         run_input = self.wait.until(
             EC.element_to_be_clickable((By.ID, "uname"))
@@ -107,7 +96,7 @@ class SiiScraper:
         services_menu = self.wait.until(
             EC.presence_of_element_located((By.LINK_TEXT, "Servicios online"))
         )
-        print("Menu servicios online")
+        self.log.info("Menú servicios online")
 
         actions = ActionChains(self.driver)
         actions.move_to_element(services_menu).click().perform()
@@ -115,7 +104,7 @@ class SiiScraper:
         factura_link = self.wait.until(
             EC.element_to_be_clickable((By.LINK_TEXT, "Factura electrónica"))
         )
-        print("Menu factura electronica")
+        self.log.info("Menú factura electrónica")
 
         # 4) Click it
         factura_link.click()
@@ -135,7 +124,7 @@ class SiiScraper:
 
         registro.click()
 
-        print("Ingresando al registro de compras y ventas")
+        self.log.info("Ingresando al registro de compras y ventas")
 
     def login_and_navigate_with_cert(self):
 
@@ -145,13 +134,12 @@ class SiiScraper:
         self.wait.until(EC.alert_is_present())
 
         alert = self.driver.switch_to.alert
-        # print("Confirm text:", alert.text)
         alert.accept()
 
         services_menu = self.wait.until(
             EC.presence_of_element_located((By.LINK_TEXT, "Servicios online"))
         )
-        print("Menu servicios online")
+        self.log.info("Menu servicios online")
 
         actions = ActionChains(self.driver)
         actions.move_to_element(services_menu).click().perform()
@@ -159,7 +147,7 @@ class SiiScraper:
         factura_link = self.wait.until(
             EC.element_to_be_clickable((By.LINK_TEXT, "Factura electrónica"))
         )
-        print("Menu factura electronica")
+        self.log.info("Menu factura electronica")
 
         # 4) Click it
         factura_link.click()
@@ -179,7 +167,7 @@ class SiiScraper:
 
         registro.click()
 
-        print("Ingresando al registro de compras y ventas")
+        self.log.info("Ingresando al registro de compras y ventas")
 
     def _scrape_pending(self, wait, link_xpath: str, status: str, doc_type: str, rut_value: str, all_rows: list):
 
@@ -188,8 +176,7 @@ class SiiScraper:
                 EC.element_to_be_clickable((By.XPATH, link_xpath))
             )
         except:
-            print(
-                f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
+            self.log.warning(f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
             return
 
         try:
@@ -200,13 +187,11 @@ class SiiScraper:
             # strip dots and parse
             count = int(count_td.text.replace(".", "").strip() or 0)
         except (NoSuchElementException, ValueError):
-            print(
-                f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
+            self.log.warning(f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
             return
 
         if count <= 0:
-            print(
-                f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
+            self.log.warning(f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
             return
 
         for attempt in range(2):
@@ -221,7 +206,7 @@ class SiiScraper:
                 link_el.click()
                 break
             except ElementClickInterceptedException:
-                print("→ Click intercepted by backdrop, retrying…")
+                self.log.warning("→ Click intercepted by backdrop, retrying…")
                 # try to dismiss any open alert-modal
                 try:
                     modal = self.driver.find_element(By.ID, "alert-modal")
@@ -234,7 +219,7 @@ class SiiScraper:
                     (By.CSS_SELECTOR, "div.modal-backdrop")
                 ))
         else:
-            print(f"→ Failed to click {doc_type} after retry, skipping.")
+            self.log.warning(f"→ Failed to click {doc_type} after retry, skipping.")
             return
 
         length_sel = wait.until(
@@ -324,7 +309,7 @@ class SiiScraper:
                 EC.element_to_be_clickable((By.XPATH, link_xpath))
             )
         except:
-            print(
+            self.log.warning(
                 f"→ No {status} - {doc_type} link for RUT {rut_value}, skipping.")
             return
 
@@ -336,16 +321,17 @@ class SiiScraper:
             # strip dots and parse
             count = int(count_td.text.replace(".", "").strip() or 0)
         except (NoSuchElementException, ValueError):
-            print(
+            self.log.warning(
                 f"→ Couldn't read count next to {doc_type} for RUT {rut_value}, skipping.")
             return
 
         if count <= 0:
-            print(
+            self.log.warning(
                 f"→ {doc_type} count is {count} for RUT {rut_value}, not scraping.")
             return
 
-        for attempt in range(2):
+        attempt = 1
+        for attempt in range(1, self.max_retries + 1):
             try:
                 # ensure no leftover backdrops
                 wait.until(EC.invisibility_of_element_located(
@@ -357,7 +343,7 @@ class SiiScraper:
                 link_el.click()
                 break
             except ElementClickInterceptedException:
-                print("→ Click intercepted by backdrop, retrying…")
+                self.log.warning("→ Click intercepted by backdrop, retrying…")
                 # try to dismiss any open alert-modal
                 try:
                     modal = self.driver.find_element(By.ID, "alert-modal")
@@ -369,8 +355,9 @@ class SiiScraper:
                 wait.until(EC.invisibility_of_element_located(
                     (By.CSS_SELECTOR, "div.modal-backdrop")
                 ))
+                attempt += 1
         else:
-            print(f"→ Failed to click {doc_type} after retry, skipping.")
+            self.log.info(f"→ Failed to click {doc_type} after retry, skipping.")
             return
 
         length_sel = wait.until(
@@ -479,7 +466,7 @@ class SiiScraper:
         try:
             elem.click()
         except ElementClickInterceptedException:
-            print("→ click intercepted—falling back to JS click")
+            self.log.warning("Click interceptado en pestaña Pendientes, usando click por JavaScript")
             self.driver.execute_script("arguments[0].click();", elem)
 
         wait.until(
@@ -535,9 +522,6 @@ class SiiScraper:
             select = Select(rut_select)
             option_count = len(select.options)
 
-            # ruts = [opt.text.strip() for opt in all_opts if opt.text.strip() and opt.text.strip() != "" and opt.text.strip() == "Empresa"]
-            # print("Will iterate RUTs:", ruts)
-
             wait = WebDriverWait(self.driver, 10)
 
             if (self.month):
@@ -569,7 +553,7 @@ class SiiScraper:
                     rut_value = sel.first_selected_option.get_attribute(
                         "value")
                     # (or use .text if you prefer the visible text)
-                    print(f"Obteniendo facturas para RUT {rut_value!r}")
+                    self.log.info(f"Obteniendo facturas para RUT {rut_value!r}")
 
                     self._dismiss_rut_popup_if_present()
 
@@ -624,7 +608,7 @@ class SiiScraper:
                             (By.XPATH, "//td[@ng-if=\"(row.rsmnLink)\"]")
                         ))
                     except TimeoutException:
-                        print(
+                        self.log.warning(
                             f"→ No pending‐documents table for RUT {rut_value}, skipping.")
                         continue
 
@@ -656,17 +640,17 @@ class SiiScraper:
                     )
 
                 except TimeoutException as e:
-                    print(
+                    self.log.warning(
                         f"Timeout processing RUT index {idx}, continuing: {e}")
                     continue
 
                 except Exception as e:
-                    print(
+                    self.log.warning(
                         f"Error processing RUT index {idx}, continuing: {type(e).__name__}: {e}")
                     continue
 
         except Exception as e:
-            print(
+            self.log.exception(
                 f"Fatal scraper error, returning partial data: "
                 f"{type(e).__name__}: {e}"
             )
@@ -683,12 +667,12 @@ class SiiScraper:
                 )
                 logout_link.click()
             except Exception as e:
-                print(f"Could not logout cleanly: {type(e).__name__}: {e}")
+                self.log.warning(f"Could not logout cleanly: {type(e).__name__}: {e}")
 
             try:
                 self.driver.quit()
             except Exception as e:
-                print(
+                self.log.warning(
                     f"Could not quit driver cleanly: {type(e).__name__}: {e}")
 
         return pd.DataFrame(all_rows, columns=headers, dtype=str)
@@ -716,9 +700,6 @@ class SiiScraper:
             select = Select(rut_select)
             option_count = len(select.options)
 
-            # ruts = [opt.text.strip() for opt in all_opts if opt.text.strip() and opt.text.strip() != "" and opt.text.strip() == "Empresa"]
-            # print("Will iterate RUTs:", ruts)
-
             all_rows = []
             headers = [
                 "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
@@ -728,18 +709,11 @@ class SiiScraper:
 
             wait = WebDriverWait(self.driver, 10)
 
-            # periodoMes = self.wait.until(EC.element_to_be_clickable((By.ID, "periodoMes")))
-            # month_sel = Select(periodoMes)
-            # month_sel.select_by_value("05")
-
             sel = Select(rut_select)
-            # index 0 = placeholder, 1 = first RUT, 2 = second RUT
             sel.select_by_value(rut)
-            # time.sleep(5)
 
             rut_value = sel.first_selected_option.get_attribute("value")
-            # (or use .text if you prefer the visible text)
-            print(f"Obteniendo facturas para RUT {rut_value!r}")
+            self.log.info(f"Obteniendo facturas para RUT {rut_value!r}")
 
             self.wait.until(
                 EC.invisibility_of_element_located((By.ID, "esperaDialog"))
@@ -791,7 +765,7 @@ class SiiScraper:
                     (By.XPATH, "//td[@ng-if=\"(row.rsmnLink)\"]")
                 ))
             except TimeoutException:
-                print(
+                self.log.warning(
                     f"→ No pending‐documents table for RUT {rut_value}, skipping.")
                 return
 
@@ -824,7 +798,6 @@ class SiiScraper:
 
             if all_rows:
                 df = pd.DataFrame(all_rows, columns=headers, dtype=str)
-                # print(df.head())
                 return df
         finally:
             self.driver.quit()
