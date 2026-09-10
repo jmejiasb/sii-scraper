@@ -2,6 +2,7 @@ import argparse
 import logging
 
 from pymongo import MongoClient
+from datetime import datetime, timedelta
 
 from sii_scraper.settings import settings
 from sii_scraper.credentials import Credentials
@@ -9,6 +10,7 @@ from sii_scraper.progress_store import ProgressStore
 from sii_scraper.invoice_transformer import InvoiceTransformer
 from sii_scraper.invoice_repository import InvoiceRepository
 from sii_scraper.runner import SiiScraperRunner
+
 
 
 def configure_logging() -> None:
@@ -60,10 +62,27 @@ def main() -> None:
             use_certificate=settings.use_certificate,
         )
 
-        runner.run(
-            month=args.month,
-            year=args.year,
-        )
+        today = datetime.now()
+
+        if today.day <= 5:
+            current_month = today.replace(day=1)
+            previous_month = current_month - timedelta(days=1)
+
+            runner.run(
+                month=f"{current_month.month:02d}",
+                year=str(previous_month.year),
+            )
+
+            runner.run(
+                month=f"{current_month.month:02d}",
+                year=str(current_month.year),
+            )
+
+        else:
+            runner.run(
+                month=args.month,
+                year=args.year,
+            )
 
     finally:
         mongo_client.close()
