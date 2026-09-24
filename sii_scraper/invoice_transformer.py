@@ -52,14 +52,14 @@ class InvoiceTransformer:
             df["date_accepted"], format="%d/%m/%Y %H:%M:%S")
 
         df["date"] = (
-            df["date"]
-            .dt.tz_localize("America/Santiago")
+            (df["date"] + pd.Timedelta(hours=6))
+            .dt.tz_localize("America/Santiago") 
             .dt.tz_convert("UTC")
         )
 
         df["date_accepted"] = (
             df["date_accepted"]
-            .dt.tz_localize("America/Santiago")
+            .dt.tz_localize("America/Santiago") 
             .dt.tz_convert("UTC")
         )
 
