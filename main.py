@@ -69,7 +69,7 @@ def main() -> None:
             previous_month = current_month - timedelta(days=1)
 
             runner.run(
-                month=f"{current_month.month:02d}",
+                month=f"{previous_month.month:02d}",
                 year=str(previous_month.year),
             )
 
