@@ -24,7 +24,7 @@ class SiiScraper:
     de datos.
     """
 
-    DEFAULT_WAIT = 15
+    DEFAULT_WAIT = 5
     HEADERS = [
         "type_purchase", "supplier_id", "supplier_name", "number", "date", "date_accepted", "type", "exent_total", "net_total", "iva", "other_tax", "iva_not",
         "code_iva_not", "total", "total_activo", "iva_activo", "iva_comun", "tax_no_credit", "iva_no_retenido", "type_document_ref", "folio_ref",

@@ -1,4 +1,5 @@
 import logging
+import time
 
 from selenium.common.exceptions import TimeoutException
 
@@ -12,6 +13,8 @@ class SiiScraperRunner:
     Coordina la carga de credenciales, el control de progreso, la ejecución del
     scraper web, la limpieza de datos y la sincronización de facturas con MongoDB.
     """
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 10
 
     def __init__(
         self,
@@ -116,3 +119,59 @@ class SiiScraperRunner:
                 continue
 
         self.progress_store.clear()
+
+    def _process_user_with_retry(
+        self,
+        user: str,
+        password: str,
+        month: str | None,
+        year: str | None,
+    ) -> None:
+        """Reintenta el procesamiento de un usuario si ocurre un TimeoutException."""
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                self._process_user(user, password, month, year)
+                return
+            except TimeoutException:
+                if attempt == self.MAX_RETRIES:
+                    raise  # out of retries, let run() handle it
+
+                self.log.warning(
+                    f"Timeout scraping {user} (intento {attempt}/{self.MAX_RETRIES}), "
+                    f"reintentando en {self.RETRY_DELAY_SECONDS}s"
+                )
+                time.sleep(self.RETRY_DELAY_SECONDS)
+
+    def _process_user(
+        self,
+        user: str,
+        password: str,
+        month: str | None,
+        year: str | None,
+    ) -> None:
+        """Scrapea, limpia y sincroniza las facturas de un solo usuario."""
+        scraper_kwargs = {
+            "headless": self.headless,
+            "use_certificate": self.use_certificate,
+        }
+
+        if month is not None:
+            scraper_kwargs["month"] = month
+
+        if year is not None:
+            scraper_kwargs["year"] = year
+
+        scraper = SiiScraper(user=user, pwd=password, **scraper_kwargs)
+
+        df = scraper.scrape_all()
+        df["sii_user"] = user
+
+        df_cleaned = self.transformer.clean_and_normalize(df)
+        inserted, updated = self.repository.sync_invoices(df_cleaned)
+
+        self.progress_store.mark_user_completed(user)
+
+        self.log.info(
+            f"Usuario finalizado: {user}. "
+            f"Insertadas: {inserted}, actualizadas: {updated}"
+        )
